@@ -15,7 +15,7 @@ const destinations = [
       description: "A national park featuring diverse ecosystems from rainforests to rugged coastlines.",
       activities: "Hiking, Wildlife watching, Camping",
       bestTime: "June to October",
-      main_image: "olympic.jpeg",
+      main_image: "olympic-park.jpg",
     },
     {
       _id: 3,
