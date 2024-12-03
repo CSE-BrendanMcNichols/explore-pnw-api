@@ -7,9 +7,9 @@ const destinations = require('./destinations');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const schedules = [
-  { destination: 'Space Needle, WA', date: '2024-09-15', time: '10:00 AM' },
-  { destination: 'Olympic National Park, WA', date: '2024-09-16', time: '2:00 PM' },
+let schedules = [
+  { id: 1, destination: 'Space Needle, WA', date: '2024-09-15', time: '10:00 AM' },
+  { id: 2, destination: 'Olympic National Park, WA', date: '2024-09-16', time: '2:00 PM' },
 ];
 
 const scheduleSchema = Joi.object({
@@ -35,9 +35,44 @@ app.post('/api/schedule', (req, res) => {
   const { error } = scheduleSchema.validate(req.body);
   if (error) return res.status(400).json({ message: error.details[0].message });
 
-  const newSchedule = req.body;
+  const newSchedule = {
+    id: schedules.length + 1,
+    ...req.body
+  };
   schedules.push(newSchedule);
   res.status(201).json({ message: 'Schedule added successfully', data: newSchedule });
+});
+
+app.put('/api/schedule/:id', (req, res) => {
+  const { error } = scheduleSchema.validate(req.body);
+  if (error) return res.status(400).json({ message: error.details[0].message });
+
+  const id = parseInt(req.params.id);
+  const scheduleIndex = schedules.findIndex(s => s.id === id);
+  
+  if (scheduleIndex === -1) {
+    return res.status(404).json({ message: 'Schedule not found' });
+  }
+
+  const updatedSchedule = {
+    id,
+    ...req.body
+  };
+
+  schedules[scheduleIndex] = updatedSchedule;
+  res.json({ message: 'Schedule updated successfully', data: updatedSchedule });
+});
+
+app.delete('/api/schedule/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const scheduleIndex = schedules.findIndex(s => s.id === id);
+  
+  if (scheduleIndex === -1) {
+    return res.status(404).json({ message: 'Schedule not found' });
+  }
+
+  schedules = schedules.filter(s => s.id !== id);
+  res.json({ message: 'Schedule deleted successfully' });
 });
 
 app.get('/', (req, res) => {
