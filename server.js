@@ -12,7 +12,6 @@ mongoose.connect('mongodb+srv://bmcnich:n9DiCoik94A451Hg@cluster0.1c0rc.mongodb.
 .then(() => console.log('Connected to MongoDB'))
 .catch(err => console.error('Could not connect to MongoDB:', err));
 
-// Configure multer to use existing images directory
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, 'images/');
