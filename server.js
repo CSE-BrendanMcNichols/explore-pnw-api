@@ -92,7 +92,7 @@ app.get('/api/schedule', async (req, res) => {
 });
 
 // POST schedule
-app.post('/api/schedule', upload.single('image'), async (req, res) => {
+app.post('/api/schedule', async (req, res) => {
     try {
         const { error } = scheduleValidationSchema.validate(req.body);
         if (error) return res.status(400).json({ message: error.details[0].message });
@@ -102,10 +102,6 @@ app.post('/api/schedule', upload.single('image'), async (req, res) => {
             date: req.body.date,
             time: req.body.time
         };
-
-        if (req.file) {
-            scheduleData.image = req.file.filename;
-        }
 
         const schedule = new Schedule(scheduleData);
         const savedSchedule = await schedule.save();
@@ -120,8 +116,12 @@ app.post('/api/schedule', upload.single('image'), async (req, res) => {
 });
 
 // PUT schedule
-app.put('/api/schedule/:id', upload.single('image'), async (req, res) => {
+app.put('/api/schedule/:id', async (req, res) => {
     try {
+        if (!req.params.id) {
+            return res.status(400).json({ message: 'Schedule ID is required' });
+        }
+
         const { error } = scheduleValidationSchema.validate(req.body);
         if (error) return res.status(400).json({ message: error.details[0].message });
 
@@ -130,10 +130,6 @@ app.put('/api/schedule/:id', upload.single('image'), async (req, res) => {
             date: req.body.date,
             time: req.body.time
         };
-
-        if (req.file) {
-            updateData.image = req.file.filename;
-        }
 
         const updatedSchedule = await Schedule.findByIdAndUpdate(
             req.params.id,
@@ -150,6 +146,9 @@ app.put('/api/schedule/:id', upload.single('image'), async (req, res) => {
             data: updatedSchedule
         });
     } catch (error) {
+        if (error.name === 'CastError') {
+            return res.status(400).json({ message: 'Invalid schedule ID format' });
+        }
         res.status(400).json({ message: error.message });
     }
 });
@@ -157,6 +156,10 @@ app.put('/api/schedule/:id', upload.single('image'), async (req, res) => {
 // DELETE schedule
 app.delete('/api/schedule/:id', async (req, res) => {
     try {
+        if (!req.params.id) {
+            return res.status(400).json({ message: 'Schedule ID is required' });
+        }
+
         const deletedSchedule = await Schedule.findByIdAndDelete(req.params.id);
         
         if (!deletedSchedule) {
@@ -165,6 +168,9 @@ app.delete('/api/schedule/:id', async (req, res) => {
 
         res.json({ message: 'Schedule deleted successfully' });
     } catch (error) {
+        if (error.name === 'CastError') {
+            return res.status(400).json({ message: 'Invalid schedule ID format' });
+        }
         res.status(500).json({ message: error.message });
     }
 });
