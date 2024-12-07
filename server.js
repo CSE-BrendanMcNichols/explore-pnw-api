@@ -4,20 +4,23 @@ const path = require('path');
 const Joi = require('joi');
 const mongoose = require('mongoose');
 const multer = require('multer');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-mongoose.connect('mongodb+srv://bmcnich:n9DiCoik94A451Hg@cluster0.1c0rc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
-.then(() => console.log('Connected to MongoDB'))
-.catch(err => console.error('Could not connect to MongoDB:', err));
+const imagesDir = path.join(__dirname, 'images');
+if (!fs.existsSync(imagesDir)){
+    fs.mkdirSync(imagesDir);
+}
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, 'images/');
     },
     filename: (req, file, cb) => {
-        cb(null, file.originalname);
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
     }
 });
 
@@ -31,11 +34,17 @@ const upload = multer({
         if (extname && mimetype) {
             return cb(null, true);
         }
-        cb(new Error('Only image files are allowed!'));
+        cb(new Error('Only .png, .jpg and .jpeg formats are allowed!'));
+    },
+    limits: {
+        fileSize: 5 * 1024 * 1024
     }
 });
 
-// Destination Schema
+mongoose.connect('mongodb+srv://bmcnich:n9DiCoik94A451Hg@cluster0.1c0rc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
+.then(() => console.log('Connected to MongoDB'))
+.catch(err => console.error('Could not connect to MongoDB:', err));
+
 const destinationSchema = new mongoose.Schema({
     name: { type: String, required: true },
     location: { type: String, required: true },
@@ -47,23 +56,32 @@ const destinationSchema = new mongoose.Schema({
 
 const Destination = mongoose.model('Destination', destinationSchema);
 
-// Schedule Schema
 const scheduleSchema = new mongoose.Schema({
     destination: { type: String, required: true },
     date: { type: String, required: true },
     time: { type: String, required: true },
-    image: { type: String }
+    image: { 
+        filename: { type: String },
+        originalName: { type: String },
+        mimetype: { type: String },
+        path: { type: String }
+    }
 }, {
     timestamps: true
 });
 
 const Schedule = mongoose.model('Schedule', scheduleSchema);
 
-// Validation Schema
 const scheduleValidationSchema = Joi.object({
     destination: Joi.string().min(3).required(),
     date: Joi.string().required(),
-    time: Joi.string().required()
+    time: Joi.string().required(),
+    image: Joi.object({
+        filename: Joi.string(),
+        originalName: Joi.string(),
+        mimetype: Joi.string(),
+        path: Joi.string()
+    }).allow(null)
 });
 
 app.use(cors());
@@ -71,7 +89,6 @@ app.use(express.json());
 app.use('/images', express.static(path.join(__dirname, 'images')));
 app.use(express.static('public'));
 
-// GET destinations
 app.get('/api/destinations', async (req, res) => {
     try {
         const destinations = await Destination.find().select('-__v');
@@ -81,7 +98,6 @@ app.get('/api/destinations', async (req, res) => {
     }
 });
 
-// GET schedules
 app.get('/api/schedule', async (req, res) => {
     try {
         const schedules = await Schedule.find().select('-__v');
@@ -91,17 +107,30 @@ app.get('/api/schedule', async (req, res) => {
     }
 });
 
-// POST schedule
-app.post('/api/schedule', async (req, res) => {
+app.post('/api/schedule', upload.single('image'), async (req, res) => {
     try {
-        const { error } = scheduleValidationSchema.validate(req.body);
-        if (error) return res.status(400).json({ message: error.details[0].message });
-
         const scheduleData = {
             destination: req.body.destination,
             date: req.body.date,
-            time: req.body.time
+            time: req.body.time,
         };
+
+        if (req.file) {
+            scheduleData.image = {
+                filename: req.file.filename,
+                originalName: req.file.originalname,
+                mimetype: req.file.mimetype,
+                path: req.file.path
+            };
+        }
+
+        const { error } = scheduleValidationSchema.validate(scheduleData);
+        if (error) {
+            if (req.file) {
+                fs.unlinkSync(req.file.path);
+            }
+            return res.status(400).json({ message: error.details[0].message });
+        }
 
         const schedule = new Schedule(scheduleData);
         const savedSchedule = await schedule.save();
@@ -111,19 +140,26 @@ app.post('/api/schedule', async (req, res) => {
             data: savedSchedule
         });
     } catch (error) {
+        if (req.file) {
+            fs.unlinkSync(req.file.path);
+        }
         res.status(400).json({ message: error.message });
     }
 });
 
-// PUT schedule
-app.put('/api/schedule/:id', async (req, res) => {
+app.put('/api/schedule/:id', upload.single('image'), async (req, res) => {
     try {
         if (!req.params.id) {
             return res.status(400).json({ message: 'Schedule ID is required' });
         }
 
-        const { error } = scheduleValidationSchema.validate(req.body);
-        if (error) return res.status(400).json({ message: error.details[0].message });
+        const existingSchedule = await Schedule.findById(req.params.id);
+        if (!existingSchedule) {
+            if (req.file) {
+                fs.unlinkSync(req.file.path);
+            }
+            return res.status(404).json({ message: 'Schedule not found' });
+        }
 
         const updateData = {
             destination: req.body.destination,
@@ -131,21 +167,45 @@ app.put('/api/schedule/:id', async (req, res) => {
             time: req.body.time
         };
 
+        if (req.file) {
+            updateData.image = {
+                filename: req.file.filename,
+                originalName: req.file.originalname,
+                mimetype: req.file.mimetype,
+                path: req.file.path
+            };
+
+            if (existingSchedule.image && existingSchedule.image.path) {
+                try {
+                    fs.unlinkSync(existingSchedule.image.path);
+                } catch (err) {
+                    console.error('Error deleting old image:', err);
+                }
+            }
+        }
+
+        const { error } = scheduleValidationSchema.validate(updateData);
+        if (error) {
+            if (req.file) {
+                fs.unlinkSync(req.file.path);
+            }
+            return res.status(400).json({ message: error.details[0].message });
+        }
+
         const updatedSchedule = await Schedule.findByIdAndUpdate(
             req.params.id,
             updateData,
             { new: true, runValidators: true }
         );
 
-        if (!updatedSchedule) {
-            return res.status(404).json({ message: 'Schedule not found' });
-        }
-
         res.json({
             message: 'Schedule updated successfully',
             data: updatedSchedule
         });
     } catch (error) {
+        if (req.file) {
+            fs.unlinkSync(req.file.path);
+        }
         if (error.name === 'CastError') {
             return res.status(400).json({ message: 'Invalid schedule ID format' });
         }
@@ -153,19 +213,22 @@ app.put('/api/schedule/:id', async (req, res) => {
     }
 });
 
-// DELETE schedule
 app.delete('/api/schedule/:id', async (req, res) => {
     try {
-        if (!req.params.id) {
-            return res.status(400).json({ message: 'Schedule ID is required' });
-        }
-
-        const deletedSchedule = await Schedule.findByIdAndDelete(req.params.id);
-        
-        if (!deletedSchedule) {
+        const schedule = await Schedule.findById(req.params.id);
+        if (!schedule) {
             return res.status(404).json({ message: 'Schedule not found' });
         }
 
+        if (schedule.image && schedule.image.path) {
+            try {
+                fs.unlinkSync(schedule.image.path);
+            } catch (err) {
+                console.error('Error deleting image:', err);
+            }
+        }
+
+        await Schedule.findByIdAndDelete(req.params.id);
         res.json({ message: 'Schedule deleted successfully' });
     } catch (error) {
         if (error.name === 'CastError') {
@@ -175,7 +238,6 @@ app.delete('/api/schedule/:id', async (req, res) => {
     }
 });
 
-// Seed initial destinations data
 const seedDestinations = async () => {
     try {
         const count = await Destination.countDocuments();
